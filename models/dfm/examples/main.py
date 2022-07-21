@@ -24,8 +24,48 @@ from torchfm.model.xdfm import ExtremeDeepFactorizationMachineModel
 from torchfm.model.afn import AdaptiveFactorizationNetwork
 
 import horovod.torch as hvd
+import time
 
 hvd.init()
+
+class AverageMeter(object):
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += n * val
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 def get_dataset(name, path):
     if name == 'movielens1M':
@@ -112,21 +152,32 @@ class EarlyStopper(object):
             return False
 
 
-def train(model, optimizer, data_loader, criterion, device, log_interval=100):
+def train(epoch, model, optimizer, data_loader, criterion, device, log_interval=100):
     model.train()
     total_loss = 0
-    tk0 = tqdm.tqdm(data_loader, smoothing=0, mininterval=1.0)
-    for i, (fields, target) in enumerate(tk0):
+
+    num_batches = len(data_loader)
+    batch_time = AverageMeter('Time', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    progress = ProgressMeter(num_batches, [batch_time, losses], prefix="Epoch: [{}]".format(epoch))
+    end = time.time()
+
+    for i, (fields, target) in enumerate(data_loader):
         fields, target = fields.to(device), target.to(device)
         y = model(fields)
         loss = criterion(y, target.float())
+        losses.update(loss, fields.size(0))
+
         model.zero_grad()
         loss.backward()
         optimizer.step()
-        total_loss += loss.item()
-        if (i + 1) % log_interval == 0:
-            tk0.set_postfix(loss=total_loss / log_interval)
-            total_loss = 0
+
+        if i >= 10:
+            batch_time.update(time.time() - end)
+        end = time.time()
+
+        if i % args.print_freq == 0:
+            progress.display(i)
 
 
 def test(model, data_loader, device):
@@ -178,7 +229,7 @@ def main(dataset_name,
     early_stopper = EarlyStopper(num_trials=2, save_path=f'{save_dir}/{model_name}.pt')
 
     for epoch_i in range(epoch):
-        train(model, optimizer, train_data_loader, criterion, device)
+        train(epoch_i, model, optimizer, train_data_loader, criterion, device)
         #auc = test(model, valid_data_loader, device)
         #print('epoch:', epoch_i, 'validation: auc:', auc)
         #if not early_stopper.is_continuable(model, auc):
@@ -200,7 +251,10 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=2048)
     parser.add_argument('--weight_decay', type=float, default=1e-6)
     parser.add_argument('--save_dir', default='chkpt')
+    parser.add_argument('--print_freq', type=int, default=10)
+
     args = parser.parse_args()
+
     main(args.dataset_name,
          args.dataset_path,
          args.model_name,
