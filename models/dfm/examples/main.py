@@ -114,7 +114,7 @@ def get_model(name, dataset):
     elif name == 'fnfm':
         return FieldAwareNeuralFactorizationMachineModel(field_dims, embed_dim=4, mlp_dims=(64,), dropouts=(0.2, 0.2))
     elif name == 'dfm':
-        return DeepFactorizationMachineModel(field_dims, embed_dim=16, mlp_dims=(16, 16), dropout=0.2)
+        return DeepFactorizationMachineModel(field_dims, embed_dim=1024, mlp_dims=(1024, 1024), dropout=0.2)
     elif name == 'xdfm':
         return ExtremeDeepFactorizationMachineModel(
             field_dims, embed_dim=16, cross_layer_sizes=(16, 16), split_half=False, mlp_dims=(16, 16), dropout=0.2)
