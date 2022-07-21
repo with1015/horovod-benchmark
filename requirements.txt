@@ -1,0 +1,30 @@
+# Imagenet
+scipy==1.5.4
+torchvision==0.3.0
+
+# GNMT
+pytablewriter
+sacrebleu==1.2.10
+sacremoses==0.0.19
+git+https://github.com/rsennrich/subword-nmt.git@48ba99e657591c329e0003f0c6e32e493fa959ef
+
+# BERT
+tqdm
+# Accessing files from S3 directly.
+boto3
+# Used for downloading models over HTTP
+requests
+six
+ipdb
+#Data processing
+h5py
+html2text
+nltk
+progressbar
+
+# Transformer
+cffi==1.15.0
+sentencepiece==0.1.96
+
+# Horovod
+horovod==0.16.1
