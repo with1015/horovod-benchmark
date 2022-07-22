@@ -24,6 +24,7 @@ from torchfm.model.xdfm import ExtremeDeepFactorizationMachineModel
 from torchfm.model.afn import AdaptiveFactorizationNetwork
 
 import horovod.torch as hvd
+import grad_hook
 import time
 
 hvd.init()
@@ -114,7 +115,7 @@ def get_model(name, dataset):
     elif name == 'fnfm':
         return FieldAwareNeuralFactorizationMachineModel(field_dims, embed_dim=4, mlp_dims=(64,), dropouts=(0.2, 0.2))
     elif name == 'dfm':
-        return DeepFactorizationMachineModel(field_dims, embed_dim=1024, mlp_dims=(1024, 1024), dropout=0.2)
+        return DeepFactorizationMachineModel(field_dims, embed_dim=128, mlp_dims=(128, 128), dropout=0.2)
     elif name == 'xdfm':
         return ExtremeDeepFactorizationMachineModel(
             field_dims, embed_dim=16, cross_layer_sizes=(16, 16), split_half=False, mlp_dims=(16, 16), dropout=0.2)
@@ -162,6 +163,11 @@ def train(epoch, model, optimizer, data_loader, criterion, device, log_interval=
     progress = ProgressMeter(num_batches, [batch_time, losses], prefix="Epoch: [{}]".format(epoch))
     end = time.time()
 
+    sparse_rate = []
+
+    if args.check_sparsity:
+        b_hook = grad_hook.hook_to_model(model, backward=True)
+
     for i, (fields, target) in enumerate(data_loader):
         fields, target = fields.to(device), target.to(device)
         y = model(fields)
@@ -170,7 +176,15 @@ def train(epoch, model, optimizer, data_loader, criterion, device, log_interval=
 
         model.zero_grad()
         loss.backward()
+
         optimizer.step()
+
+        if args.check_sparsity:
+            rate = 0.0
+            for hook in b_hook:
+                cnt = hook.inputs[0].numel() - hook.inputs[0].nonzero().size(0)
+                rate += float(cnt) / float(hook.inputs[0].numel())
+            sparse_rate.append(rate / len(b_hook))
 
         if i >= 10:
             batch_time.update(time.time() - end)
@@ -178,6 +192,9 @@ def train(epoch, model, optimizer, data_loader, criterion, device, log_interval=
 
         if i % args.print_freq == 0:
             progress.display(i)
+            if args.check_sparsity:
+                print("[DEBUG] average sparse rate:", sum(sparse_rate) / len(sparse_rate))
+                sparse_rate = []
 
 
 def test(model, data_loader, device):
@@ -252,6 +269,8 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=1e-6)
     parser.add_argument('--save_dir', default='chkpt')
     parser.add_argument('--print_freq', type=int, default=10)
+
+    parser.add_argument('--check_sparsity', action='store_true')
 
     args = parser.parse_args()
 
