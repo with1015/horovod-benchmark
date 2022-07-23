@@ -20,6 +20,7 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 
 import horovod.torch as hvd
+import grad_hook
 
 hvd.init()
 
@@ -90,14 +91,10 @@ parser.add_argument('--lr-scaling', action='store_true',
 parser.add_argument('--profile-dir', type=str, default=None,
                     help='Profile json file. '
                          'If the file path is set up, profiler runs.')
-parser.add_argument('--jit-trace', action='store_true',
-                    help="TorchSrcipt JIT trace mode")
-parser.add_argument('--jit-script', action='store_true',
-                    help="TorchSrcipt JIT script mode")
 parser.add_argument('--perf-breakdown', action='store_true',
                     help="Flags for performance breakdown")
-parser.add_argument('--no-optimizer', action='store_true',
-                    help="Run without optimizer to measure computation only")
+parser.add_argument('--check-sparsity', action='store_true',
+                    help="Check sparse rate")
 
 best_acc1 = 0
 
@@ -354,10 +351,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
+
     if args.num_minibatches is not None:
         num_batches = args.num_minibatches
     else:
         num_batches = len(train_loader)
+
     progress = ProgressMeter(
         num_batches,
         [batch_time, data_time,
@@ -383,6 +382,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     print('Warm-up training end!')
     is_outlier = False
     end = time.time()
+
+    sparse_rate = []
+    if args.check_sparsity:
+        b_hook = grad_hook.hook_to_model(model, backward=True)
+
     for i, (images, target) in enumerate(train_loader):
         if args.num_minibatches is not None and i > args.num_minibatches:
             break
@@ -425,6 +429,19 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             gradient_time.update(time.time() - start)
             start = time.time()
         optimizer.step()
+
+
+        if i >= 10 and args.check_sparsity:
+            for hook in b_hook:
+                if len(hook.inputs) > 0:
+                    for idx in range(len(hook.inputs)):
+                        if hook.inputs[idx] == None:
+                            continue
+                        cnt = hook.inputs[idx].numel() - hook.inputs[idx].nonzero().size(0)
+                        rate = float(cnt) / float(hook.inputs[idx].numel())
+                        sparse_rate.append(rate)
+
+
         if i >= 10 and not is_outlier:
             update_time.update(time.time() - start)
             backward_time.update(time.time() - bwd_start)
@@ -434,8 +451,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             batch_time.update(time.time() - end)
         end = time.time()
 
+
         if i % args.print_freq == 0:
             progress.display(i)
+            if i >= 10 and args.check_sparsity:
+                if len(sparse_rate) == 0:
+                    continue
+                print("[DEBUG] average sparse rate:", sum(sparse_rate) / len(sparse_rate))
+                sparse_rate = []
+
 
 
 def validate(val_loader, model, criterion, args):

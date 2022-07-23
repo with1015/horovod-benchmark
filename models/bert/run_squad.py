@@ -50,6 +50,7 @@ from tokenization import (BasicTokenizer, BertTokenizer, whitespace_tokenize)
 from utils import is_main_process
 
 import horovod.torch as hvd
+import grad_hook
 
 if sys.version_info[0] == 2:
     import cPickle as pickle
@@ -186,6 +187,11 @@ parser.add_argument('--perf-breakdown', action='store_true',
                     help="Flags for performance breakdown")
 parser.add_argument('--no-optimizer', action='store_true',
                     help="Run without optimizer to measure computation only")
+
+parser.add_argument('--check-sparsity', action='store_true',
+                    help="check sparsity of gradient")
+parser.add_argument('--check-param-sparsity', action='store_true',
+                    help="check parameter sparsity")
 
 class SquadExample(object):
     """
@@ -924,6 +930,11 @@ def train(train_dataloader, model, scheduler, optimizer, epoch, global_step,
     model.train()
 
     end = time.time()
+
+    sparse_rate = []
+    if args.check_sparsity:
+        b_hook = grad_hook.hook_to_model(model, backward=True)
+
     for step, batch in enumerate(train_dataloader):
         # Terminate early for benchmarking
         if args.max_steps > 0 and global_step > args.max_steps:
@@ -978,6 +989,16 @@ def train(train_dataloader, model, scheduler, optimizer, epoch, global_step,
             optimizer.zero_grad()
             global_step += 1
 
+        if step >= 10 and args.check_sparsity:
+            for hook in b_hook:
+                if len(hook.inputs) > 0:
+                    for idx in range(len(hook.inputs)):
+                        if hook.inputs[idx] == None:
+                            continue
+                        cnt = hook.inputs[idx].numel() - hook.inputs[idx].nonzero().size(0)
+                        rate = float(cnt) / float(hook.inputs[idx].numel())
+                        sparse_rate.append(rate)
+
         if step >= 10:
             update_time.update(time.time() - start)
             backward_time.update(time.time() - bwd_start)
@@ -989,6 +1010,10 @@ def train(train_dataloader, model, scheduler, optimizer, epoch, global_step,
 
         if step % args.log_freq == 0:
             progress.display(step)
+            if step >= 10 and args.check_sparsity:
+                if len(sparse_rate) == 0:
+                    continue
+                print("[DEBUG] average sparse rate of gradients:", sum(sparse_rate) / len(sparse_rate))
 
 
 def predict(eval_dataloader, model, epoch, device, eval_examples, eval_features, args):

@@ -27,6 +27,7 @@ NCCL_DEBUG=INFO NCCL_TREE_THRESHOLD=0 NCCL_IB_DISABLE=0 NCCL_SOCKET_IFNAME=ib0 h
   -b $batch_size \
   --num-minibatches $num_minibatches \
   --no-validate \
+  --check-sparsity \
   $data_dir
   
   #$data_dir 2>&1 | tee -a -i $log_file 

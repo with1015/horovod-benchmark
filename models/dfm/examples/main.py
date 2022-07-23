@@ -115,7 +115,7 @@ def get_model(name, dataset):
     elif name == 'fnfm':
         return FieldAwareNeuralFactorizationMachineModel(field_dims, embed_dim=4, mlp_dims=(64,), dropouts=(0.2, 0.2))
     elif name == 'dfm':
-        return DeepFactorizationMachineModel(field_dims, embed_dim=128, mlp_dims=(128, 128), dropout=0.2)
+        return DeepFactorizationMachineModel(field_dims, embed_dim=512, mlp_dims=(512, 512), dropout=0.2)
     elif name == 'xdfm':
         return ExtremeDeepFactorizationMachineModel(
             field_dims, embed_dim=16, cross_layer_sizes=(16, 16), split_half=False, mlp_dims=(16, 16), dropout=0.2)
@@ -180,11 +180,20 @@ def train(epoch, model, optimizer, data_loader, criterion, device, log_interval=
         optimizer.step()
 
         if args.check_sparsity:
-            rate = 0.0
             for hook in b_hook:
-                cnt = hook.inputs[0].numel() - hook.inputs[0].nonzero().size(0)
-                rate += float(cnt) / float(hook.inputs[0].numel())
-            sparse_rate.append(rate / len(b_hook))
+                if len(hook.inputs) > 0:
+                    for idx in range(len(hook.inputs)):
+                        if hook.inputs[idx] == None:
+                            continue
+                        cnt = hook.inputs[idx].numel() - hook.inputs[idx].nonzero().size(0)
+                        rate = float(cnt) / float(hook.inputs[idx].numel())
+                        sparse_rate.append(rate)
+
+        if args.check_param_sparsity:
+            for p in model.parameters():
+                cnt = p.numel() - p.nonzero().size(0)
+                rate = float(cnt) / float(p.numel())
+                print(rate)
 
         if i >= 10:
             batch_time.update(time.time() - end)
@@ -271,6 +280,7 @@ if __name__ == '__main__':
     parser.add_argument('--print_freq', type=int, default=10)
 
     parser.add_argument('--check_sparsity', action='store_true')
+    parser.add_argument('--check_param_sparsity', action='store_true')
 
     args = parser.parse_args()
 

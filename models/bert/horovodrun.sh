@@ -127,11 +127,12 @@ CMD+=" --output_dir=$OUT_DIR "
 CMD+=" --vocab_file=$vocab_file "
 CMD+=" --config_file=$CONFIG_FILE "
 CMD+=" --max_steps=$max_steps "
+CMD+=" --check-param-sparsity "
 
 CMD+=" $use_fp16"
 
 echo "$CMD"
 
 CUDA_LAUNCH_BLOCKING=0 NCCL_DEBUG=INFO NCCL_TREE_THRESHOLD=0 NCCL_IB_DISABLE=0 NCCL_SOCKET_IFNAME=ib0 \
-horovodrun --verbose -np 8 -H shark6:4,shark7:4 -p 51234 $CMD
+horovodrun --verbose -np 1 -H shark7:1 -p 51234 $CMD
 wait
