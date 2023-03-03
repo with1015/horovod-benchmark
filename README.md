@@ -15,3 +15,5 @@ $ conda install pytorch==1.8.1 torchvision cudatoolkit=10.1 -c pytorch
 $ pip install -r requirements.txt
 ```
 
+#### Thanks to
+All code is modified from https://github.com/NVIDIA/DeepLearningExamples/tree/master
